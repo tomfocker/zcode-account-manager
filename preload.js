@@ -17,4 +17,7 @@ contextBridge.exposeInMainWorld('zcodeAPI', {
 
   // Quota for all recorded accounts
   getAllQuotas: () => ipcRenderer.invoke('get-all-quotas'),
+
+  // Open browser login window to add another account
+  addAccount: () => ipcRenderer.invoke('add-account'),
 });

@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -139,16 +140,20 @@ function extractUserInfo(credentials) {
     } catch (e) { /* malformed JSON, keep defaults */ }
   }
 
-  // 2. JWT payload also carries user_id (no email, but stable id)
-  if (!info.userId) {
-    const jwt = decryptField(credentials, 'zcodejwttoken');
-    if (jwt && jwt.split('.').length === 3) {
-      try {
-        const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64').toString());
-        info.userId = payload.user_id || payload.sub || info.userId;
-      } catch (e) { /* ignore */ }
-    }
-  }
+	  // 2. JWT payload fallback — extract user_id plus any available profile claims
+	  const jwt = decryptField(credentials, 'zcodejwttoken');
+	  if (jwt && jwt.split('.').length === 3) {
+	    try {
+	      const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64').toString());
+	      if (!info.userId) {
+	        info.userId = payload.user_id || payload.sub || null;
+	      }
+	      // Populate missing profile fields from JWT claims
+	      if (!info.email) info.email = payload.email || null;
+	      if (!info.name) info.name = payload.name || payload.preferred_username || payload.nickname || null;
+	      if (!info.avatar) info.avatar = payload.picture || payload.avatar || null;
+	    } catch (e) { /* ignore */ }
+	  }
 
   return info;
 }
@@ -431,21 +436,28 @@ function identifyAccount(credentials) {
       };
     }
   }
-  // 2. Fallback: config.json start-plan JWT (unencrypted, has user_id)
-  const config = readJson(CONFIG_PATH);
-  if (config?.provider) {
-    for (const pid of ['builtin:zai-start-plan', 'builtin:bigmodel-start-plan']) {
-      const jwt = config.provider[pid]?.options?.apiKey;
-      if (jwt && jwt.split('.').length === 3) {
-        try {
-          const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64').toString());
-          if (payload.user_id) {
-            return { id: payload.user_id, userId: payload.user_id, email: null, name: null, avatar: null, source: 'jwt' };
-          }
-        } catch (e) { /* malformed */ }
-      }
-    }
-  }
+	  // 2. Fallback: config.json start-plan JWT (unencrypted, may have user_id + profile)
+	  const config = readJson(CONFIG_PATH);
+	  if (config?.provider) {
+	    for (const pid of ['builtin:zai-start-plan', 'builtin:bigmodel-start-plan']) {
+	      const jwt = config.provider[pid]?.options?.apiKey;
+	      if (jwt && jwt.split('.').length === 3) {
+	        try {
+	          const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64').toString());
+	          if (payload.user_id) {
+	            return {
+	              id: payload.user_id,
+	              userId: payload.user_id,
+	              email: payload.email || null,
+	              name: payload.name || payload.preferred_username || payload.nickname || null,
+	              avatar: payload.picture || payload.avatar || null,
+	              source: payload.email ? 'userinfo' : 'jwt',
+	            };
+	          }
+	        } catch (e) { /* malformed */ }
+	      }
+	    }
+	  }
   // 3. Last resort: hash of encrypted access_token
   if (credentials) {
     const token = credentials['oauth:zai:access_token'] || credentials['oauth:bigmodel:access_token'];
@@ -622,6 +634,171 @@ ipcMain.handle('delete-account', async (event, accountId) => {
   return { success: true, message: '账号已删除' };
 });
 
+// 8b. Open a browser login window so the user can log into another ZCode
+// account via OAuth. After login completes, the JWT is extracted from the
+// page's localStorage and used to create a new account entry.
+function processJwtAndCreateAccount(jwt, label) {
+	  let userId = null;
+	  let jwtEmail = null;
+	  let jwtName = null;
+	  let jwtAvatar = null;
+	  try {
+	    const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64').toString());
+	    userId = payload.user_id || payload.sub;
+	    // Extract profile claims that may be present in the JWT
+	    jwtEmail = payload.email || null;
+	    jwtName = payload.name || payload.preferred_username || payload.nickname || null;
+	    jwtAvatar = payload.picture || payload.avatar || null;
+	  } catch (e) {
+	    return { success: false, error: '无法解析 JWT payload' };
+	  }
+	  if (!userId) {
+	    return { success: false, error: 'JWT 中未找到 user_id' };
+	  }
+
+	  const id = normalizeAccountId(userId);
+	  const index = readAccountsIndex();
+
+	  // Check for duplicates
+	  if (index.accounts.find(a => a.id === id)) {
+	    return { success: false, error: `账号 ${id.slice(0, 8)}… 已存在` };
+	  }
+
+	  const now = new Date().toISOString();
+	  const settings = readJson(SETTING_PATH);
+	  const family = settings?.providerFamilyDomain || 'unknown';
+
+	  // Store credentials blob (plain JWT, decryptCredential returns as-is)
+	  const credentials = { zcodejwttoken: jwt };
+	  const credFile = path.join(ACCOUNTS_CRED_DIR, `${id.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`);
+	  ensureDir(ACCOUNTS_CRED_DIR);
+	  writeJson(credFile, credentials);
+
+	  // Build label: explicit label > JWT name > email prefix > fallback
+	  const autoLabel = jwtName || (jwtEmail ? jwtEmail.split('@')[0] : null);
+	  const account = {
+	    id,
+	    label: label || autoLabel || `手动添加 ${index.accounts.length + 1}`,
+	    family,
+	    source: jwtEmail ? 'userinfo' : 'manual',
+	    userId: id,
+	    email: jwtEmail,
+	    name: jwtName,
+	    avatar: jwtAvatar,
+	    createdAt: now,
+	    updatedAt: now,
+	    lastSeen: now,
+	  };
+
+  index.accounts.push(account);
+  writeAccountsIndex(index);
+
+  return { success: true, account, message: `账号「${account.label}」添加成功` };
+}
+
+ipcMain.handle('add-account', async () => {
+  return new Promise((resolve) => {
+    let resolved = false;
+
+    const loginWin = new BrowserWindow({
+      width: 860,
+      height: 720,
+      title: 'ZCode 账号登录 — 完成后将自动关闭',
+      center: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+
+    // Poll localStorage for a JWT after the page settles
+    async function tryExtractJwt() {
+      if (resolved) return null;
+      try {
+        const scripts = [
+          // Try common localStorage keys
+          `(function(){
+            const jwtKeys = ['jwt','token','zcode_token','auth_token','access_token','id_token'];
+            for (const k of jwtKeys) {
+              const v = localStorage.getItem(k);
+              if (v && v.split('.').length === 3 && v.startsWith('eyJ')) return v;
+            }
+            // Scan all localStorage entries
+            for (let i=0; i<localStorage.length; i++) {
+              const k = localStorage.key(i);
+              const v = localStorage.getItem(k);
+              if (v && v.split('.').length === 3 && v.startsWith('eyJ')) return v;
+            }
+            // Also try sessionStorage
+            for (let i=0; i<sessionStorage.length; i++) {
+              const k = sessionStorage.key(i);
+              const v = sessionStorage.getItem(k);
+              if (v && v.split('.').length === 3 && v.startsWith('eyJ')) return v;
+            }
+            // Try cookie
+            const m = document.cookie.match(/(?:^|;\s*)jwt=([^;]+)/);
+            if (m && m[1].split('.').length===3 && m[1].startsWith('eyJ')) return m[1];
+            return null;
+          })()`
+        ];
+        const jwt = await loginWin.webContents.executeJavaScript(scripts[0]);
+        return jwt;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // Periodically poll for JWT after navigation
+    let pollTimer = null;
+    function startPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      let attempts = 0;
+      pollTimer = setInterval(async () => {
+        attempts++;
+        const jwt = await tryExtractJwt();
+        if (jwt) {
+          clearInterval(pollTimer);
+          resolved = true;
+          loginWin.close();
+          const result = processJwtAndCreateAccount(jwt, null);
+          resolve(result);
+        } else if (attempts > 60) { // 30 seconds timeout
+          clearInterval(pollTimer);
+          resolved = true;
+          loginWin.close();
+          resolve({ success: false, error: '超时：未能从登录页面获取凭证，请确认已完成登录' });
+        }
+      }, 500);
+    }
+
+    loginWin.webContents.on('did-navigate', (event, url) => {
+      // Start polling once user navigates away from the login/auth pages
+      // (i.e. reaches the main app after successful login)
+      if (url.includes(ZCODE_HOST) && !url.includes('/login') && !url.includes('/auth')) {
+        startPolling();
+      }
+    });
+
+    // Also start polling on page load finish (in case no navigation occurs)
+    loginWin.webContents.on('did-finish-load', () => {
+      const currentUrl = loginWin.webContents.getURL();
+      if (currentUrl.includes(ZCODE_HOST) && !currentUrl.includes('/login') && !currentUrl.includes('/auth')) {
+        startPolling();
+      }
+    });
+
+    loginWin.on('closed', () => {
+      if (pollTimer) clearInterval(pollTimer);
+      if (!resolved) {
+        resolved = true;
+        resolve({ success: false, error: '登录窗口已关闭，未获取到凭证' });
+      }
+    });
+
+    loginWin.loadURL(`https://${ZCODE_HOST}/login`);
+  });
+});
+
 // 9. Get quota/billing for ALL recorded accounts.
 // Each account's credentials blob is decrypted to recover its JWT, which is
 // then used to call the billing API. Accounts without a usable JWT are skipped.
@@ -736,6 +913,26 @@ ipcMain.handle('refresh-accounts', async () => {
   return { success: true };
 });
 
+// ── Auto-updater event logging ──────────────────────────────────
+autoUpdater.on('checking-for-update', () => {
+  console.log('[Updater] 正在检查更新...');
+});
+autoUpdater.on('update-available', (info) => {
+  console.log('[Updater] 发现新版本:', info.version);
+});
+autoUpdater.on('update-not-available', () => {
+  console.log('[Updater] 当前已是最新版本');
+});
+autoUpdater.on('error', (err) => {
+  console.error('[Updater] 更新出错:', err.message);
+});
+autoUpdater.on('download-progress', (progress) => {
+  console.log(`[Updater] 下载进度: ${Math.round(progress.percent)}%`);
+});
+autoUpdater.on('update-downloaded', () => {
+  console.log('[Updater] 更新已下载完毕，即将安装');
+});
+
 // ── Electron window ────────────────────────────────────────────
 let mainWindow;
 
@@ -764,6 +961,8 @@ function createWindow() {
       submenu: [
         { label: '刷新', accelerator: 'CmdOrCtrl+R', click: () => mainWindow.reload() },
         { type: 'separator' },
+        { label: '检查更新', click: () => autoUpdater.checkForUpdatesAndNotify() },
+        { type: 'separator' },
         { label: '退出', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() },
       ],
     },
@@ -774,6 +973,9 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+
+  // Auto-check for updates on startup (no prompt if already latest)
+  autoUpdater.checkForUpdatesAndNotify();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

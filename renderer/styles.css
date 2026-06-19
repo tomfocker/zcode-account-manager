@@ -89,8 +89,6 @@ body::-webkit-scrollbar-thumb {
 }
 
 .section:nth-child(2) { animation-delay: 0.05s; }
-.section:nth-child(3) { animation-delay: 0.1s; }
-.section:nth-child(4) { animation-delay: 0.15s; }
 
 @keyframes fadeSlideIn {
   from { opacity: 0; transform: translateY(12px); }
@@ -207,93 +205,6 @@ button:disabled {
   background: var(--red-bg);
   border-color: var(--red-border);
 }
-
-/* ── Provider cards ───────────────────────────────────────── */
-.provider-cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-
-.provider-card {
-  background: var(--bg-card);
-  border: 2px solid var(--border-light);
-  border-radius: var(--radius);
-  padding: 18px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  position: relative;
-  box-shadow: var(--shadow-sm);
-}
-
-.provider-card:hover {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
-}
-
-.provider-card.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1), var(--shadow-md);
-}
-
-.provider-card .card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.provider-card .card-name {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.provider-card .card-badge {
-  font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-}
-
-.badge-active {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.badge-inactive {
-  background: var(--bg-input);
-  color: var(--text-muted);
-}
-
-.provider-card .card-status {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.status-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.status-dot.green { background: var(--green); box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2); }
-.status-dot.red { background: var(--red); box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2); }
-.status-dot.orange { background: var(--orange); box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2); }
-.status-dot.gray { background: #cbd5e1; }
 
 .billing-error {
   padding: 14px 16px;

@@ -50,102 +50,6 @@ function formatDateShort(isoStr) {
   }
 }
 
-// ── 1. Provider State ───────────────────────────────────────
-async function loadProviderState() {
-  try {
-    const state = await api.getProviderState();
-    renderProviderCards(state);
-  } catch (e) {
-    console.error('Failed to load provider state:', e);
-    document.getElementById('provider-cards').innerHTML =
-      '<div class="billing-error">加载 Provider 状态失败</div>';
-  }
-}
-
-function renderProviderCards(state) {
-  const container = document.getElementById('provider-cards');
-  const hintEl = document.getElementById('switch-hint');
-
-  const families = [
-    {
-      id: 'zai',
-      name: 'Z.ai',
-      loggedIn: state.zaiLoggedIn,
-      planStatus: state.planStatus,
-    },
-    {
-      id: 'bigmodel',
-      name: 'BigModel',
-      loggedIn: state.bigmodelLoggedIn,
-      planStatus: state.planStatus,
-    },
-  ];
-
-  container.innerHTML = families.map(f => {
-    const isActive = state.currentFamily === f.id;
-    const loginText = f.loggedIn ? '已登录' : '未登录';
-    const loginDot = f.loggedIn ? 'green' : 'red';
-
-    // Find plan status for this family's start-plan
-    const planId = `builtin:${f.id}-start-plan`;
-    const planInfo = f.planStatus?.[planId];
-    const planText = planInfo?.status === 'available' ? 'Start Plan ✓' : (planInfo?.status || '-');
-    const planDot = planInfo?.status === 'available' ? 'green' : 'gray';
-
-    return `
-      <div class="provider-card ${isActive ? 'active' : ''}" data-family="${f.id}">
-        <div class="card-header">
-          <span class="card-name">${f.name}</span>
-          ${isActive
-            ? '<span class="card-badge badge-active">当前使用</span>'
-            : '<span class="card-badge badge-inactive">未激活</span>'}
-        </div>
-        <div class="card-status">
-          <div class="status-row">
-            <span class="status-dot ${loginDot}"></span>
-            <span>${loginText}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-dot ${planDot}"></span>
-            <span>Coding Plan: ${planText}</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  // Hint
-  if (state.currentFamily === 'zai') {
-    hintEl.textContent = '当前使用 Z.ai 家族。点击 BigModel 卡片可切换。';
-  } else {
-    hintEl.textContent = '当前使用 BigModel 家族。点击 Z.ai 卡片可切换。';
-  }
-
-  // Bind click
-  container.querySelectorAll('.provider-card').forEach(card => {
-    card.addEventListener('click', async () => {
-      const family = card.dataset.family;
-      if (family === state.currentFamily) {
-        showToast('已经是当前 family，无需切换', 'info');
-        return;
-      }
-      // Confirm
-      const familyName = family === 'zai' ? 'Z.ai' : 'BigModel';
-      if (!confirm(`确认切换到 ${familyName}？\n\n切换后 ZCode 会自动重启。`)) return;
-
-      card.style.opacity = '0.5';
-      card.style.pointerEvents = 'none';
-      try {
-        const result = await api.switchFamily(family);
-        showToast(result.message, result.success ? 'success' : 'error');
-        await loadProviderState();
-      } catch (e) {
-        showToast('切换失败: ' + e.message, 'error');
-      }
-    });
-  });
-}
-
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -276,7 +180,6 @@ function renderAccounts(data, quotas) {
         const result = await api.switchAccount(id);
         showToast(result.message, result.success ? 'success' : 'error');
         if (result.success) {
-          await loadProviderState();
           await loadAccounts();
         }
       } catch (e) {
@@ -394,7 +297,6 @@ function cssEscape(s) {
 
 // ── Refresh all ───────────────────────────────────────────────
 async function refreshAll() {
-  await loadProviderState();
   await loadAccounts();
 }
 
@@ -405,4 +307,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Refresh button
   document.getElementById('btn-refresh-all').addEventListener('click', refreshAll);
+
+  // ── Add Account ────────────────────────────────────────────────
+  document.getElementById('btn-add-account').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-add-account');
+    btn.disabled = true;
+    btn.textContent = '登录中…';
+    showToast('正在打开登录窗口…', 'info', 5000);
+    try {
+      const result = await api.addAccount();
+      if (result.success) {
+        showToast(result.message, 'success');
+        await loadAccounts();
+      } else {
+        showToast(result.error || '添加失败', 'error');
+      }
+    } catch (e) {
+      showToast('添加失败: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '➕ 添加';
+    }
+  });
 });

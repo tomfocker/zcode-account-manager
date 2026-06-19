@@ -5,11 +5,36 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "build": "electron-builder --win",
     "test": "echo \"No tests yet\" && exit 0"
   },
   "author": "Andy",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "build": {
+    "appId": "com.andy.zcode-account-manager",
+    "productName": "ZCode Account Manager",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "ZCode 账号管理器"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "tomfocker",
+      "repo": "zcode-account-manager"
+    }
   }
 }
