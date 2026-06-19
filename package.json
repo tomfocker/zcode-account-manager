@@ -1,0 +1,15 @@
+{
+  "name": "zcode-account-manager",
+  "version": "1.0.0",
+  "description": "ZCode 账号切换与额度查看工具",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "author": "Andy",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

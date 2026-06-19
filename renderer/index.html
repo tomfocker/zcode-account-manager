@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>ZCode 账号管理器</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <h1>ZCode 账号管理器</h1>
+      <button id="btn-refresh-all" class="btn-icon" title="刷新全部数据">🔄</button>
+    </header>
+
+    <!-- Section 1: Provider 切换 -->
+    <section class="section">
+      <h2 class="section-title">Provider 切换</h2>
+      <div class="provider-cards" id="provider-cards">
+        <!-- Rendered by JS -->
+      </div>
+      <p class="hint" id="switch-hint"></p>
+    </section>
+
+    <!-- Section 2: 账号管理（自动记录） -->
+    <section class="section">
+      <div class="section-header">
+        <h2 class="section-title">👤 已记录的账号</h2>
+        <span class="hint" style="margin:0;">打开应用时自动记录当前登录账号</span>
+      </div>
+      <div id="account-list">
+        <div class="loading">加载中…</div>
+      </div>
+    </section>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
